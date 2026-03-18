@@ -1,1 +1,269 @@
+# Java 设计模式面试 & 项目实战笔记（3–5年经验向）
 
+目标：中高级 / 资深 Java 后端岗位面试准备 + 项目中真实可落地的用法  
+适用场景：Spring Boot / 微服务 / 中台 / 电商 / 支付 / 金融 等系统  
+最后更新：2026年
+
+## 1. 设计模式使用频率排行（真实项目 + 面试角度）
+
+| 排名 | 模式                  | 类型     | 项目中使用占比（粗估） | 面试出现率 | 一句话核心目的                          | 最常见真实用法示例                              |
+|------|-----------------------|----------|--------------------------|------------|-----------------------------------------|-------------------------------------------------|
+| 1    | 单例 Singleton        | 创建型   | 95%+                     | ★★★★★      | 全局唯一实例                            | 配置、RedisTemplate、日志、连接池              |
+| 2    | 工厂（简单/方法/抽象）| 创建型   | 80%+                     | ★★★★☆      | 封装创建逻辑，解耦                      | 支付渠道、MQ类型、策略对象、Bean创建           |
+| 3    | 观察者 / 发布订阅     | 行为型   | 70%+                     | ★★★★       | 一对多状态通知，解耦                    | Spring @EventListener、Kafka、状态变更通知     |
+| 4    | 代理 Proxy            | 结构型   | 60%+                     | ★★★★       | 控制访问 / 增强（AOP本质）              | Spring AOP、日志、权限、监控、动态数据源       |
+| 5    | 装饰器 Decorator      | 结构型   | 60%+                     | ★★★☆       | 动态增强功能，不改原有类                | IO流、日志加traceId/脱敏、事务/权限装饰        |
+| 6    | 策略 Strategy         | 行为型   | 50%+                     | ★★★★       | 算法/行为可互换，消除if-else            | 支付方式、优惠规则、风控评分、排序策略         |
+| 7    | 责任链                | 行为型   | 40%+                     | ★★★☆       | 请求沿链传递，有序可插拔处理            | Filter链、订单/支付校验链、Spring Security     |
+| 8    | 模板方法              | 行为型   | 35%+                     | ★★★        | 算法骨架，子类定制步骤                  | JdbcTemplate、RedisTemplate、BaseController    |
+| 9    | 建造者 Builder        | 创建型   | 25%+                     | ★★★        | 复杂对象链式构建，可读性高              | DTO/VO、QueryWrapper、请求参数对象             |
+|10    | 适配器 Adapter        | 结构型   | 20%+                     | ★★☆        | 接口不兼容时转换                        | 第三方SDK对接、HandlerAdapter                  |
+
+**口诀记忆**：单工观代装，策责模建适
+
+## 2. 高频模式核心代码 & 项目用法
+
+### 2.1 单例（Singleton）—— 线程安全推荐写法
+
+```java
+// 方式1：静态内部类（推荐，延迟加载+线程安全）
+public class ConfigManager {
+    private ConfigManager() {}
+    
+    private static class Holder {
+        private static final ConfigManager INSTANCE = new ConfigManager();
+    }
+    
+    public static ConfigManager getInstance() {
+        return Holder.INSTANCE;
+    }
+}
+
+// 方式2：枚举（防反射、序列化攻击，最安全）
+public enum Singleton {
+    INSTANCE;
+    
+    public void doSomething() {
+        // ...
+    }
+}
+项目真实场景：全局配置、Redis/线程池管理器、雪花ID生成器
+```
+
+### 2.2 工厂家族（重点区分三种）
+```java
+// 简单工厂（常用，但违背开闭）
+public class PayFactory {
+    public static PayStrategy create(String type) {
+        return switch (type) {
+            case "wechat"  -> new WechatPay();
+            case "alipay"  -> new AlipayPay();
+            default        -> throw new IllegalArgumentException();
+        };
+    }
+}
+
+// 工厂方法（符合开闭）
+interface PayFactory {
+    PayStrategy createPay();
+}
+
+class WechatPayFactory implements PayFactory {
+    public PayStrategy createPay() { return new WechatPay(); }
+}
+```
+项目用法：支付渠道、消息队列类型、存储类型（oss/minio/cos）
+
+### 2.3 策略模式（消除if-else神器）
+```java
+interface DiscountStrategy {
+    BigDecimal calculate(BigDecimal originalPrice, OrderContext ctx);
+}
+
+class FullMinusStrategy implements DiscountStrategy { ... }
+class NoDiscountStrategy implements DiscountStrategy { ... }
+
+@Service
+class OrderPriceService {
+    private final Map<String, DiscountStrategy> strategies;
+    
+    public OrderPriceService(List<DiscountStrategy> list) {
+        this.strategies = list.stream()
+            .collect(Collectors.toMap(s -> s.getClass().getSimpleName(), s -> s));
+    }
+    
+    public BigDecimal computePrice(Order order) {
+        String key = order.getPromotionType();  // 或从配置读取
+        DiscountStrategy strategy = strategies.getOrDefault(key, new NoDiscountStrategy());
+        return strategy.calculate(order.getOriginalPrice(), order);
+    }
+}
+```
+项目价值：新增规则只需加类 + 配置，核心逻辑0改动
+
+### 2.4 责任链（有序、可插拔校验/处理）
+```java
+abstract class Handler {
+    protected Handler next;
+    public void setNext(Handler next) { this.next = next; }
+    public abstract void handle(OrderContext ctx);
+}
+
+@Component @Order(1)
+class LoginCheckHandler extends Handler {
+    public void handle(OrderContext ctx) {
+        if (!ctx.isLoggedIn()) {
+            throw new BusinessException("未登录");
+        }
+        if (next != null) next.handle(ctx);
+    }
+}
+```
+Spring 常用组装方式：List<Handler> handlers → 按 @Order 排序 → 串联
+### 2.5 观察者（Spring 事件机制）
+```java
+// 事件定义
+public class OrderPaidEvent extends ApplicationEvent {
+    private final Order order;
+    public OrderPaidEvent(Object source, Order order) {
+        super(source);
+        this.order = order;
+    }
+}
+
+// 发布
+@Service
+class OrderService {
+    @Autowired private ApplicationEventPublisher publisher;
+    
+    public void paySuccess(Order order) {
+        publisher.publishEvent(new OrderPaidEvent(this, order));
+    }
+}
+
+// 监听（异步示例）
+@Component
+class SmsNoticeListener {
+    @Async @EventListener
+    public void onOrderPaid(OrderPaidEvent event) {
+        // 发送短信
+    }
+}
+```
+### 2.6 装饰器（动态增强）
+```java
+// 日志增强示例
+public class TraceIdLogDecorator implements LogService {
+    private final LogService delegate;
+    
+    public TraceIdLogDecorator(LogService delegate) {
+        this.delegate = delegate;
+    }
+    
+    public void info(String msg) {
+        String traceId = MDC.get("traceId");
+        delegate.info("[traceId:{}] {}", traceId, msg);
+    }
+}
+```
+常见位置：响应包装、日志脱敏、输入输出流
+
+# 设计模式 - 项目故事模板 & 面试快速背诵锦囊  
+（3–5年 Java 后端面试 / 项目实战向）
+
+最后更新：2026年  
+适用人群：准备中高级 / 资深 Java 后端面试的同学  
+核心目标：用 STAR 法则讲清楚“项目中真的用过”，并快速应对常见追问
+
+## 3. 项目故事模板（STAR 法则 - 面试直接套用）
+
+### 故事 1 — 策略模式 + 工厂（支付 / 优惠 / 规则场景）  
+**最推荐首讲的故事**，业务价值最明显，出现频率最高
+
+**情境（Situation）**  
+在电商 / 支付 / 风控模块中，支付渠道、优惠计算规则、风控评分策略频繁新增（微信、支付宝、银联、Apple Pay、跨境支付、分期……），原来核心方法全是 if-else / switch，单方法 200+ 行，新增一个渠道就要改核心类，回归测试痛苦，经常引入 bug，严重违背开闭原则。
+
+**任务（Task）**  
+消除硬编码，支持渠道 / 规则快速扩展，新增需求尽量不改核心代码。
+
+**行动（Action）**  
+采用 **策略模式 + 简单工厂 / 工厂方法** 重构：  
+- 定义统一接口 `PayStrategy` / `DiscountStrategy` / `RiskScoreStrategy`  
+- 每种实现一个具体策略类（WechatPayStrategy、FullMinusStrategy 等）  
+- 用 `StrategyFactory` 根据类型（channelType / promotionType）动态创建策略  
+- 核心业务类只依赖接口，通过 setter / 构造注入，在运行时切换  
+
+重构后核心类从 200+ 行压缩到 30 多行。
+
+**结果（Result）**  
+- 新增支付渠道 / 优惠规则只需新增一个类 + 配置修改，基本 1 小时可上线  
+- 核心代码 0 改动，符合开闭原则  
+- 回归测试成本下降约 60%，开发周期从 3–5 天缩短到 1 天左右  
+- 后续在消息通知、排序规则、异步分发等处复用类似写法
+
+### 故事 2 — 责任链模式（订单 / 支付 / 风控校验链）
+
+**情境（Situation）**  
+订单创建 / 支付前置环节有 10+ 项校验规则（登录态、黑名单、库存、限购、风控评分、重复提交防重……），不同业务线、不同活动对规则顺序、必选/可选要求不同，校验逻辑全部堆在一个大方法里，嵌套 if 极深，经常改坏别人的代码。
+
+**任务（Task）**  
+实现规则解耦、可配置、可插拔、易单元测试。
+
+**行动（Action）**  
+采用 **责任链模式** 重构：  
+- 定义抽象 `Handler`（含 `doHandle()` 和 `next` 指针）  
+- 每条校验写成独立 Handler（如 LoginCheckHandler、StockCheckHandler）  
+- 通过 Spring 的 `List<Handler>` + `@Order` 注解 或 配置方式组装链  
+- 入口只需调用链头 `chain.doHandle(context)`，context 携带所有上下文信息
+
+**结果（Result）**  
+- 每条规则独立类，职责单一，单元测试覆盖率大幅提升  
+- 调整顺序、开关规则、针对活动跳过校验 → 只改配置，不动代码  
+- 新增“新人专享校验”“区域限售”等规则基本 1 小时完成  
+- 后续在支付路由、API 鉴权、日志脱敏等链式场景复用
+
+### 故事 3 — 观察者模式 / 发布-订阅（Spring 事件机制）
+
+**情境（Situation）**  
+订单状态变更后需要触发大量下游动作（发短信、扣营销积分、生成物流单、统计埋点、回滚库存、解锁优惠券……），全部写在订单服务里导致服务极度臃肿，且下游模块强依赖订单服务，耦合严重。
+
+**任务（Task）**  
+让订单核心服务完全不关心下游有哪些消费者，实现最大程度解耦。
+
+**行动（Action）**  
+基于 **Spring 事件发布订阅（观察者模式）** 重构：  
+- 定义领域事件（如 `OrderPaidEvent`、`OrderCancelledEvent`）继承 `ApplicationEvent`  
+- 状态变更成功后通过 `ApplicationEventPublisher` 发布事件  
+- 下游模块写 `@EventListener` 方法（支持 `@Async` 异步消费）  
+- 订单服务只负责发布，不再调用任何下游接口
+
+**结果（Result）**  
+- 订单服务彻底解耦，下游新增动作只需加一个 listener，订单服务 0 改动  
+- 支持异步处理，性能更好  
+- 后续新增“支付成功赠抽奖机会”“跨境订单触发海关申报”等需求上线极快  
+- 系统整体扩展性显著提升，维护成本大幅下降
+
+## 4. 快速背诵 & 面试 30 秒锦囊
+
+### 单例模式优先级（线程安全 & 防攻击）
+枚举 > 静态内部类 > DCL + volatile > 饿汉式 > 懒汉式（synchronized 方法）
+
+### 工厂三种对比（一句话记住）
+- 简单工厂 → 最方便，但违背开闭原则  
+- 工厂方法 → 符合开闭，但产品族多时类爆炸  
+- 抽象工厂 → 专门处理产品族（跨平台 UI、数据库驱动等）
+
+### 代理 vs 装饰器（最常被问区别）
+- 代理（Proxy） → 控制访问（可以拒绝、不转发），典型：权限、缓存、日志切面、AOP  
+- 装饰器（Decorator） → 只增强功能（一定放行），典型：IO 流层层包装、日志加 traceId/脱敏
+
+### 策略 vs 状态（容易混淆）
+- 策略（Strategy） → 关注同一件事的多种算法/实现可互换（支付方式、排序规则）  
+- 状态（State） → 关注对象生命周期内随着状态变化而改变的行为（订单状态机：待支付 → 已支付 → 已发货）
+
+### Spring 框架中最常见的 5 大设计模式
+1. 单例（Bean 默认 singleton）  
+2. 工厂（BeanFactory / ApplicationContext）  
+3. 代理（AOP 核心）  
+4. 观察者（ApplicationEvent / @EventListener）  
+5. 模板方法（JdbcTemplate、RedisTemplate、TransactionTemplate）
