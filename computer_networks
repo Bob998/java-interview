@@ -1,1 +1,210 @@
+# 计算机网络面试题总结（Java 后台开发向）
 
+适用于 Java 后端/分布式/高并发系统开发面试  
+最后更新：2026 年  
+参考来源：小林coding《图解网络》、JavaGuide、二哥的Java进阶之路、牛客/知乎/掘金高频面经
+
+本仓库目标：覆盖 80%+ 大厂（阿里/字节/腾讯/美团/华为等）计算机网络高频考点  
+建议：结合 Wireshark 抓包 + Netty/Spring Boot 项目实战经验回答，画图最加分
+
+## 目录
+
+- [1. 网络基础模型](#1-网络基础模型)
+- [2. 从输入 URL 到页面渲染全流程](#2-从输入-url-到页面渲染全流程)
+- [3. TCP 核心机制](#3-tcp-核心机制)
+  - TCP 三次握手
+  - TCP 四次挥手 & TIME_WAIT
+  - TCP 可靠传输保证
+  - 滑动窗口 & 流量控制
+  - 拥塞控制四个阶段
+- [4. TCP vs UDP](#4-tcp-vs-udp)
+- [5. HTTP/HTTPS 系列](#5-httphttps-系列)
+  - HTTP 1.0 / 1.1 / 2.0 / 3.0 区别
+  - HTTPS 握手过程（TLS 1.2 vs 1.3）
+  - 常见状态码 & GET vs POST
+  - 长连接、队头阻塞、Keep-Alive
+- [6. DNS 解析](#6-dns-解析)
+- [7. 应用层常见问题](#7-应用层常见问题)
+  - Cookie vs Session vs Token vs JWT
+  - 粘包/半包 & 拆包方案
+- [8. 网络 IO 模型（Java 视角）](#8-网络-io-模型java-视角)
+- [9. 其他高频追问](#9-其他高频追问)
+
+## 1. 网络基础模型
+
+**OSI 七层模型 vs TCP/IP 四层模型？**
+
+| 层级       | OSI 七层                  | TCP/IP 四层         | 主要协议/功能                              |
+|------------|---------------------------|---------------------|--------------------------------------------|
+| 7          | 应用层                    | 应用层              | HTTP/HTTPS、DNS、FTP、SMTP                 |
+| 6          | 表示层                    | （合并）            | 数据格式、加密、压缩                       |
+| 5          | 会话层                    | （合并）            | 会话建立、管理、同步                       |
+| 4          | 传输层                    | 传输层              | TCP（可靠）、UDP（尽最大努力）             |
+| 3          | 网络层                    | 网络层              | IP、ICMP、ARP、路由                        |
+| 2          | 数据链路层                | 网络接口层          | MAC 地址、Ethernet、PPP、差错检测          |
+| 1          | 物理层                    | （合并）            | 比特流传输、网线/光纤/Wi-Fi                |
+
+**为什么实际互联网用 TCP/IP 而非 OSI？**  
+OSI 是理论模型，太复杂、落地难；TCP/IP 是先有实现后有标准，协议族成熟、广泛部署。
+
+**Java 关联**：Socket 在传输层，Netty 主要工作在应用层 + 传输层。
+
+## 2. 从输入 URL 到页面渲染全流程（经典链路题）
+
+1. URL 解析 → 浏览器缓存/本地 hosts → DNS 解析（递归/迭代）得到 IP
+2. TCP 三次握手建立连接
+3. TLS 握手（HTTPS 才有，协商对称密钥）
+4. 发送 HTTP 请求（请求行 + 请求头 + body）
+5. 服务器处理（Nginx/Tomcat/Spring Boot） → 返回 HTTP 响应
+6. 浏览器解析 HTML → 构建 DOM/CSSOM → 渲染树 → 布局 → 绘制 → JS 执行
+7. 并发下载静态资源（CSS/JS/图片），可能触发更多 TCP/HTTP 请求
+8. TCP 四次挥手（或 Keep-Alive 复用）
+
+**常见追问**：
+- DNS 劫持怎么防？ → DoH/DoT + 应用层缓存（Redis/Nacos）
+- 怎么优化白屏时间？ → DNS预解析、Preconnect、HTTP/2、CDN
+
+## 3. TCP 核心机制
+
+### TCP 三次握手
+
+**过程**（客户端主动）：
+1. Client → Server: SYN (seq = x)
+2. Server → Client: SYN + ACK (seq = y, ack = x+1)
+3. Client → Server: ACK (ack = y+1)
+
+**为什么三次而不是两次？**  
+- 确认双向收发能力  
+- 同步初始序列号 ISN  
+- 防止历史延迟 SYN 建立错误连接（旧连接的 SYN 干扰）
+
+**SYN 洪泛攻击防御**：SYN Cookie、增大半连接队列、backlog 参数调优
+
+### TCP 四次挥手 & TIME_WAIT
+
+**过程**（主动关闭方）：
+1. 主动方 → 被动方: FIN (seq = u)
+2. 被动方 → 主动方: ACK (ack = u+1)  → 进入 CLOSE_WAIT（半关闭）
+3. 被动方 → 主动方: FIN (seq = v)
+4. 主动方 → 被动方: ACK (ack = v+1) → TIME_WAIT（等待 2MSL ≈ 4min）
+
+**TIME_WAIT 作用**：
+1. 确保最后一个 ACK 到达（被动方可能重传 FIN）
+2. 让延迟报文在网络中消亡（避免新连接误用旧端口/序列号）
+
+**危害 & 优化**：
+- 端口耗尽（大量短连接）  
+- 解决方案：tcp_tw_reuse、增大端口范围、优先用长连接/连接池
+
+### TCP 可靠传输核心机制
+
+1. 序列号 + 确认应答（累计确认）
+2. 超时重传（RTO 动态计算，指数退避）
+3. 滑动窗口（流量控制，防止缓冲区溢出）
+4. 拥塞控制（慢启动、拥塞避免、快重传、快恢复）
+5. 校验和（头部 + 数据）
+
+### 拥塞控制四个阶段（必画图）
+
+- **慢启动**：cwnd 从 1/10 MSS 指数增长，直到 ssthresh
+- **拥塞避免**：cwnd 线性增长（每个 RTT +1 MSS）
+- **快重传**：收到 3 次重复 ACK，立即重传丢失包
+- **快恢复**：ssthresh = cwnd/2，cwnd = ssthresh + 3（快速恢复）
+
+**2025-2026 新趋势**：Google BBR 算法（基于瓶颈带宽 + RTT 估算，更适合现代网络）
+
+## 4. TCP vs UDP
+
+| 维度         | TCP                          | UDP                        |
+|--------------|------------------------------|----------------------------|
+| 连接         | 面向连接（三次握手）         | 无连接                     |
+| 可靠性       | 可靠（重传、排序、流量/拥塞控制） | 尽力而为，无保证           |
+| 传输单位     | 字节流（可能粘包）           | 数据报（保留边界）         |
+| 首部开销     | 20~60 字节                   | 8 字节                     |
+| 场景         | HTTP/HTTPS、FTP、邮件        | DNS、视频直播、游戏、QUIC  |
+
+**HTTP/3 为什么用 UDP + QUIC？**  
+解决 TCP 队头阻塞、0-RTT 连接、连接迁移、多路复用更彻底。
+
+## 5. HTTP/HTTPS 系列
+
+### HTTP 版本演进
+
+| 版本    | 核心特性                              | 队头阻塞 | 连接方式     |
+|---------|---------------------------------------|----------|--------------|
+| 1.0     | 短连接、无 Host 头                    | 有       | 每次请求新建 |
+| 1.1     | Keep-Alive、Host、管道化、Range       | 有       | 长连接       |
+| 2.0     | 二进制分帧、多路复用、HPACK 头压缩、推送 | 应用层无 | 长连接       |
+| 3.0     | QUIC + UDP、0-RTT、真多路复用、连接迁移 | 无       | -            |
+
+### HTTPS 握手（TLS 1.3 优化）
+
+**TLS 1.2**（4 次交互，2 RTT）：
+1. ClientHello
+2. ServerHello + 证书
+3. ClientKeyExchange（加密 pre-master secret）
+4. Change Cipher Spec + Finished
+
+**TLS 1.3**（1 RTT，甚至 0-RTT）：
+- 强制前向安全性（删 RSA 密钥交换）
+- 加密所有握手消息（含证书）
+- 支持 0-RTT（早期数据，但有重放风险）
+
+**防中间人**：CA 证书链 + 公钥校验 + CRL/OCSP
+
+## 6. DNS 解析
+
+**流程**：
+1. 浏览器缓存 → 系统缓存 → hosts 文件
+2. 本地 DNS（递归查询）
+3. 根域名 → 顶级域名（.com）→ 权威域名服务器（迭代查询）
+4. 返回 IP
+
+**UDP 还是 TCP？** → 主要 UDP（53 端口），zone transfer 用 TCP
+
+## 7. 应用层常见问题
+
+### 粘包/半包（Java 后台必考）
+
+**原因**：TCP 是字节流，无边界；Nagle 算法合并小包；缓冲区一次读多包
+
+**解决**（Netty 常用）：
+1. 定长协议
+2. 长度字段 + LengthFieldBasedFrameDecoder
+3. 分隔符（如 \r\n）
+4. 自定义协议（魔数 + 长度 + 数据 + 校验）
+
+### Cookie vs Session vs Token vs JWT
+
+- **Cookie**：客户端存，小（4KB），自动携带，易 XSS/CSRF
+- **Session**：服务器存 Session + Cookie 传 JSESSIONID，集群需共享（Redis）
+- **Token/JWT**：无状态，自含信息（Header.Payload.Signature），Base64 + 签名，适合微服务/前后端分离
+
+**JWT 缺点**：不可主动失效（需黑名单/短有效期 + refresh token）
+
+## 8. 网络 IO 模型（Java 视角）
+
+| 模型 | 特点                             | Java 实现                  | 适用场景          |
+|------|----------------------------------|----------------------------|-------------------|
+| BIO  | 阻塞，一连接一线程               | ServerSocket + Socket      | 低并发（Tomcat BIO） |
+| NIO  | 非阻塞 + 多路复用（select/epoll）| Channel + Selector         | 高并发（Netty 核心） |
+| AIO  | 异步回调                         | AsynchronousServerSocketChannel | Windows IOCP 较多 |
+
+**Netty**：Reactor 模型 + NIO + 线程池 + ByteBuf + 拆包器，高性能首选。
+
+## 9. 其他高频追问
+
+- HTTP 断点续传：Range + 206 Partial Content
+- HTTP 缓存：强缓存（Cache-Control/Expires） vs 协商缓存（ETag/Last-Modified）
+- TCP 参数调优：SO_REUSEADDR、TCP_NODELAY、SO_RCVBUF/SNDBUF
+- QUIC 优势：0-RTT、连接迁移、无队头阻塞
+
+## 推荐学习资源
+
+- 《图解 HTTP》
+- 《图解 TCP/IP》
+- 小林coding：https://www.xiaolincoding.com/
+- JavaGuide 网络篇
+- Wireshark 抓包实践
+
+MIT License
