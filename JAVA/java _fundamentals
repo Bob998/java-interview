@@ -1,1 +1,397 @@
+# Java 基础核心面试题总结 (3年经验进阶版)
 
+> **适用人群**：拥有3年开发经验的 Java 后台工程师
+
+> **核心目标**：不仅知道“是什么”，更要掌握“为什么”及底层原理，能够结合场景与源码进行深度阐述。
+
+> **参考来源**：JavaGuide 及主流大厂面试真题
+
+---
+
+## 📅 目录
+
+1. [基础概念与常识](#1-基础概念与常识)
+2. [基本语法与数据类型](#2-基本语法与数据类型)
+3. [面向对象核心 (OOP)](#3-面向对象核心-oop)
+4. 🔥 [四大高频深水区 (必考)](#4-四大高频深水区-必考)
+   - [值传递机制](#41-java-只有值传递)
+   - [序列化](#42-序列化)
+   - [反射](#43-反射)
+   - [代理模式](#44-代理模式)
+5. [异常处理体系](#5-异常处理体系)
+6. [面试备战建议](#6-面试备战建议)
+
+---
+
+## 1. 基础概念与常识
+
+### 1.1 Java 语言特点
+*   **核心特性**：简单易学、面向对象、平台无关性（JVM）、支持多线程、可靠性（异常+GC）、安全性、高效性（JIT）。
+*   **核心口号**：“一次编译，到处运行”。
+*   **对比 C++**：无指针操作、自动垃圾回收、单继承（接口多实现），牺牲部分性能换取安全与开发效率。
+
+### 1.2 JVM, JDK, JRE 区别
+| 术语 | 全称 | 组成 | 作用 |
+| :--- | :--- | :--- | :--- |
+| **JVM** | Java Virtual Machine | 虚拟机核心 | 运行字节码，实现跨平台的关键 |
+| **JRE** | Java Runtime Environment | JVM + 核心类库 | 运行已编译程序的环境（用户端） |
+| **JDK** | Java Development Kit | JRE + 开发工具 | 开发者必备 (javac, javadoc, jdb等) |
+
+*   **关系**：`JDK ⊃ JRE ⊃ JVM`
+*   **注意**：JDK 9+ 引入模块化，不再单独提供 JRE 下载，可使用 `jlink` 定制运行时。
+*   **选型建议**：推荐 **OpenJDK** 或厂商发行版（如阿里 Dragonwell），免费开源且更新快。
+
+### 1.3 字节码与编译解释并存
+*   **字节码 (.class)**：不面向特定 CPU，只面向 JVM 的中间码。
+*   **执行流程**：源代码 → `javac` 编译 → 字节码 → JVM (解释执行 / JIT 编译执行) → 机器码。
+*   **AOT (Ahead-Of-Time)**：JDK 9 引入。提前编译为机器码。
+    *   *优点*：启动快、内存占用低（云原生友好）。
+    *   *缺点*：不支持动态特性（反射/动态代理），峰值性能略低于 JIT。
+
+---
+
+## 2. 基本语法与数据类型
+
+### 2.1 8种基本数据类型
+*   **整数**：`byte`(1), `short`(2), `int`(4), `long`(8)
+*   **浮点**：`float`(4), `double`(8)
+*   **字符**：`char`(2)
+*   **布尔**：`boolean`
+*   **默认值**：数值为 `0`，`char` 为 `\u0000`，`boolean` 为 `false`。
+
+### 2.2 包装类型与缓存
+*   **缓存机制**：`Integer`, `Byte`, `Short`, `Long` 默认缓存 `[-128, 127]`；`Character` 缓存 `[0, 127]`。
+*   **陷阱**：
+    ```java
+    Integer a = 128;
+    Integer b = 128;
+    System.out.println(a == b); // false (超出缓存范围，new了新对象)
+    
+    Integer c = 127;
+    Integer d = 127;
+    System.out.println(c == d); // true (命中缓存)
+    ```
+*   **最佳实践**：包装类型比较务必使用 `.equals()`。
+
+### 2.3 自动装箱与拆箱
+*   **原理**：装箱调用 `valueOf()`，拆箱调用 `intValue()`。
+*   **性能警告**：**严禁**在循环中进行自动拆装箱，会创建大量临时对象，增加 GC 压力。
+
+### 2.4 精度问题
+*   **浮点数**：`float/double` 存在精度丢失，**禁止**用于金额计算。
+*   **解决方案**：使用 `BigDecimal`。
+    *   *构造*：必须使用 `String` 构造函数 (`new BigDecimal("0.1")`)。
+    *   *比较*：使用 `compareTo()` 而非 `equals()`。
+*   **大整数**：超过 `long` 范围使用 `BigInteger`。
+
+---
+
+## 3. 面向对象核心 (OOP)
+
+### 3.1 三大特征
+1.  **封装**：隐藏内部细节，通过 `private` + `getter/setter` 访问。
+2.  **继承**：`extends`，单继承。代码复用。
+3.  **多态**：父类引用指向子类对象。运行时绑定（动态绑定）。
+
+### 3.2 接口 vs 抽象类
+| 特性 | 接口 (Interface) | 抽象类 (Abstract Class) |
+| :--- | :--- | :--- |
+| **设计目的** | 行为规范 (Can-do) | 代码复用 (Is-a) |
+| **继承方式** | 多实现 (`implements`) | 单继承 (`extends`) |
+| **成员变量** | `public static final` | 任意类型 |
+| **方法** | JDK8+ 支持 `default`, `static` | 可有抽象方法，也可有具体实现 |
+
+### 3.3 == 与 equals()
+*   `==`：比较**地址**（基本类型比较值）。
+*   `equals()`：比较**内容**（需重写，如 String）。
+*   **铁律**：重写 `equals()` **必须** 重写 `hashCode()`，否则在 `HashMap`/`HashSet` 中会导致数据丢失或重复。
+
+---
+
+## 🔥 4. 四大高频深水区 (必考)
+
+> **面试官心理**：这部分是区分 1-3 年经验与 3-5 年经验的分水岭。不仅要背结论，要能画图、讲原理、结合 Spring 场景。
+
+### 4.1 Java 只有值传递
+
+**结论**：Java **永远只有值传递**，没有引用传递。
+*   **基本类型**：传递数值的副本。
+*   **引用类型**：传递**地址值的副本**（复印件）。
+
+**生活比喻**：
+你把家门钥匙号码（地址）抄了一份给朋友（副本）。
+*   朋友拿着复印件去你家（堆内存），可以搬动家具（修改对象属性）→ **生效**。
+*   朋友把复印件上的号码改了，或者把复印件撕了，你手里的原件（原引用）不会变 → **不生效**。
+
+**代码实证**：
+```java
+class Dog { String name; Dog(String n){ this.name = n; } }
+
+public class Test {
+    public static void main(String[] args) {
+        int age = 3;
+        changeAge(age); 
+        // age 仍为 3 (副本被改)
+
+        Dog myDog = new Dog("旺财");
+        changeName(myDog, "小黑"); 
+        // myDog.name 变为 "小黑" (通过地址副本找到堆对象并修改)
+
+        changeRef(myDog); 
+        // myDog.name 仍为 "小黑" (方法内副本指向了新对象，原引用未变)
+    }
+
+    static void changeAge(int a) { a = 10; }
+    static void changeName(Dog dog, String n) { dog.name = n; }
+    static void changeRef(Dog dog) { dog = new Dog("大黄"); }
+}
+```
+
+## 4.2 序列化 (Serialization)
+
+### 📌 定义
+将对象转换为字节流的过程（用于持久化存储、网络传输）；**反序列化**则是将字节流还原为对象的过程。
+
+### 🔑 关键点
+
+1.  **接口要求**：
+    *   类必须实现 `java.io.Serializable` 接口。
+    *   这是一个**标记接口**（无方法），仅表示该类的对象可以被序列化。
+
+2.  **transient 关键字**：
+    *   **作用**：修饰不需要被序列化的字段。
+    *   **场景**：敏感信息（如密码 `password`）、资源句柄（如线程 `Thread`、数据库连接 `Connection`、Socket 流）。
+    *   **结果**：反序列化后，这些字段的值为默认值（null, 0, false 等）。
+
+3.  **serialVersionUID (版本控制)**：
+    *   **作用**：验证发送者和接收者加载的类在序列化过程中是否兼容。
+    *   **机制**：
+        *   若 ID **一致**：即使类结构有小幅变化（如新增字段），也能兼容反序列化。
+        *   若 ID **不一致**（或未显式定义导致类结构变化后自动计算的 ID 改变）：抛出 `java.io.InvalidClassException`。
+    *   **最佳实践**：**务必显式定义**。
+      ```java
+      private static final long serialVersionUID = 1L;
+      ```
+
+### 🌍 应用场景
+*   **Session 共享**：将用户 Session 对象序列化存入 Redis 集群。
+*   **RPC 传输**：Dubbo、gRPC 等框架在网络间传输对象参数。
+*   **对象缓存/持久化**：将复杂对象直接写入文件或数据库 blob 字段。
+
+---
+
+## 4.3 反射 (Reflection)
+
+### 📌 定义
+在运行时动态获取类的信息（属性、方法、构造器），并动态创建对象、调用方法的能力。它是 Java 动态性的基石。
+
+### 🔑 核心 API
+*   `Class.forName("com.example.User")`：获取 Class 对象。
+*   `getDeclaredMethod()` / `getDeclaredField()`：获取指定方法或字段（包括私有）。
+*   `setAccessible(true)`：**暴力反射**，绕过 Java 访问控制检查，访问私有成员。
+*   `invoke()` / `newInstance()`：动态调用方法或创建实例。
+
+### ⚖️ 优缺点分析
+
+| 维度 | 描述 |
+| :--- | :--- |
+| **✅ 灵活性** | 极高。是 **Spring IOC/AOP**、**MyBatis** (动态 SQL/映射)、**Lombok**、**JUnit** 等框架的核心实现原理。 |
+| **❌ 性能** | 较差。反射调用比直接调用慢 **10~100 倍**（涉及安全检查、动态解析）。<br>*(注：JDK 9+ 引入模块系统和优化，但仍有开销)* |
+| **❌ 安全性** | 破坏了封装性。可以通过暴力反射修改 `private` 字段，可能导致对象状态不安全。 |
+
+### 🗣️ 面试高分话术
+> “反射是 Java 框架的基石，它实现了运行时的动态解耦。在 Spring 中，依赖注入和 AOP 都大量依赖反射。
+> **但在业务开发中要注意**：避免在**热点路径**（如高频循环、核心交易链路）中使用反射，因为性能损耗明显。如果必须使用，建议缓存 `Method` 或 `Constructor` 对象，避免重复查找。”
+
+---
+
+## 4.4 代理模式 (Proxy)
+
+### 📌 定义
+为其他对象提供一种代理，以控制对原对象的访问。常用于在不修改目标代码的前提下，增加额外逻辑（**加料**）：如日志记录、事务管理、权限校验、性能监控等。
+
+### ⚔️ 两种动态代理对比
+
+| 特性 | JDK 动态代理 | CGLIB 动态代理 |
+| :--- | :--- | :--- |
+| **实现原理** | **反射** + **接口** | **继承** (基于 ASM 生成字节码) |
+| **目标类要求** | **必须实现接口** | **无需接口** (但不能是 `final` 类或 `final` 方法) |
+| **性能** | 稍慢 (反射调用) | 较快 (接近直接调用，但启动时生成子类有开销) |
+| **Spring 策略** | 默认优先使用 JDK 代理 | 若目标类无接口，Spring Boot 2.x+ 默认自动切换为 CGLIB |
+
+### 💻 JDK 代理简易代码示例
+
+核心在于实现 `InvocationHandler` 接口：
+
+```java
+import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.Method;
+
+public class LoggingHandler implements InvocationHandler {
+    private Object target; // 目标对象
+
+    public LoggingHandler(Object target) {
+        this.target = target;
+    }
+
+    @Override
+    public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+        // 【前置增强】
+        System.out.println("【日志】开始执行方法：" + method.getName());
+        
+        // 【真正调用】
+        Object result = method.invoke(target, args);
+        
+        // 【后置增强】
+        System.out.println("【日志】方法执行完成");
+        
+        return result;
+    }
+}
+```
+
+# Java 异常处理体系与面试备战指南
+
+> **适用人群**：3年经验 Java 开发工程师
+> **核心目标**：掌握异常分类、最佳实践及高频考点，构建清晰的知识体系。
+
+---
+
+## 5. 异常处理体系
+
+### 5.1 异常层次结构
+
+Java 的异常体系根植于 `Throwable` 类，主要分为 `Error` 和 `Exception` 两大类。
+
+```text
+Throwable
+├── Error (系统级错误)
+│   ├── OutOfMemoryError (OOM)      // 内存溢出
+│   └── StackOverflowError          // 栈溢出
+│
+└── Exception (程序可处理)
+    ├── Checked Exception (受检异常)
+    │   ├── IOException             // IO 异常
+    │   └── SQLException            // SQL 异常
+    │   (特点：编译期强制 catch 或 throws)
+    │
+    └── Unchecked Exception (运行时异常)
+        └── RuntimeException
+            ├── NullPointerException (NPE)       // 空指针
+            ├── IllegalArgumentException         // 非法参数
+            └── IndexOutOfBoundsException        // 数组越界
+            (特点：编译期不强制处理，通常由逻辑错误引起)
+```
+
+核心区别详解
+| 类型 | 描述 | 处理方式 | 典型场景 |
+| :--- | :--- | :--- | :--- |
+| Error | JVM 层面严重错误，资源耗尽或虚拟机故障。 | 不可控，不建议尝试 `catch`。通常意味着程序无法继续运行。 | 内存溢出、栈溢出、虚拟机内部错误。 |
+| Checked | 编译器强制要求处理的异常。代表可恢复的外部错误。 | 必须 `try-catch` 或在方法签名上 `throws`。 | 文件不存在、网络中断、数据库连接失败。 |
+| Unchecked | 运行时异常，继承自 `RuntimeException`。通常是代码逻辑错误。 | 编译期不强制处理。建议在编码阶段避免，或通过全局异常处理器捕获。 | 空指针引用、数组下标越界、类型转换错误。 |
+
+## 5.2 最佳实践与陷阱
+
+### 1. 优先使用 Unchecked (RuntimeException)
+*   **现代开发趋势**：如 Spring 框架风格，倾向于将非恢复性的业务错误封装为 `RuntimeException`（或其子类）。
+*   **优势**：
+    *   减少大量的 `try-catch` 嵌套，使业务代码更清晰、简洁。
+    *   只有真正需要调用方干预恢复的场景（如文件读写、网络中断）才使用 Checked 异常。
+
+### 2. Try-with-resources (Java 7+)
+*   **适用场景**：任何实现了 `java.lang.AutoCloseable` 接口的资源（如 IO 流、数据库连接 `Connection`、Socket）。
+*   **优势**：
+    *   **自动关闭**：代码块结束后自动调用 `close()` 方法，无需编写繁琐的 `finally` 块。
+    *   **异常抑制**：如果 `try` 块和 `close()` 方法都抛出异常，主异常会被抛出，`close()` 的异常会被作为 "suppressed exception" 附加，避免异常丢失。
+```java
+// 传统写法 (繁琐且易错)
+FileInputStream fis = null;
+try {
+    fis = new FileInputStream("file.txt");
+    // 使用资源
+} catch (IOException e) {
+    e.printStackTrace();
+} finally {
+    if (fis != null) {
+        try { fis.close(); } catch (IOException e) { e.printStackTrace(); }
+    }
+}
+
+// 推荐写法 (Try-with-resources)
+try (FileInputStream fis = new FileInputStream("file.txt")) {
+    // 使用资源
+    // 代码块结束时，fis.close() 会自动被调用
+} catch (IOException e) {
+    e.printStackTrace();
+}
+```
+
+### 3. Finally 陷阱 (面试高频坑点)
+
+#### 陷阱一：Finally 不一定执行
+*   **场景 A**：如果在 `try` 或 `catch` 块中调用了 `System.exit(0)`，JVM 会直接终止，**finally 块不会执行**。
+*   **场景 B**：如果线程在执行 `try` 块时死亡（如被强制 kill 或守护线程随主线程结束），finally 也不会执行。
+
+#### 陷阱二：Finally 中禁止 return
+*   **规则**：**严禁**在 `finally` 块中使用 `return` 语句。
+*   **后果**：
+    *   如果 `finally` 中有 `return`，它会**覆盖** `try` 或 `catch` 块中的返回值。
+    *   如果 `try` 块中抛出了异常，而 `finally` 中有 `return`，异常会被**吞掉**（不再抛出），导致严重的调试困难。
+
+示例
+```java
+public int test() {
+    try {
+        return 1;
+    } finally {
+        return 2; // 最终返回 2，try 中的 return 1 被覆盖！
+    }
+}
+```
+## 6. 面试备战建议
+
+针对 **3年经验工程师**，以下是复习优先级排序及核心考点，建议按此顺序查漏补缺。
+
+### 🎯 复习优先级 (按重要性排序)
+
+#### 1. 值传递机制 ⭐⭐⭐⭐⭐
+*   **必考指数**：极高
+*   **核心考点**：
+    *   明确 Java **只有值传递**，没有引用传递。
+    *   能画出 **栈 (Stack)** 和 **堆 (Heap)** 的内存图。
+    *   解释清楚：
+        *   基本类型传的是**数值副本**。
+        *   引用类型传的是**地址值的副本**（所以能改对象属性，但不能改变引用指向）。
+*   **准备动作**：手写一个 Demo，演示交换基本类型失败、修改对象属性成功、替换对象引用失败的三种情况。
+
+#### 2. String 不可变性 & == vs equals ⭐⭐⭐⭐⭐
+*   **必考指数**：极高
+*   **核心考点**：
+    *   **设计原因**：String 为什么设计为不可变？（安全性、哈希缓存、线程安全、字符串常量池优化）。
+    *   **常量池**：字符串常量池的工作原理及 `intern()` 方法。
+    *   **比较区别**：`==` (比较地址) 与 `equals()` (比较内容) 的区别。
+    *   **铁律**：重写 `equals()` **必须** 重写 `hashCode()`，否则在 `HashMap`/`HashSet` 中会导致数据丢失或重复。
+
+#### 3. 包装类缓存 & 自动拆装箱 ⭐⭐⭐⭐
+*   **必考指数**：高
+*   **核心考点**：
+    *   **缓存范围**：`Integer` 等包装类的默认缓存范围是 **[-128, 127]**。
+    *   **经典面试题**：`Integer a = 128; Integer b = 128; a == b` 的结果是 `false`（因为超出了缓存范围，是新对象）。
+    *   **性能陷阱**：在 `for` 循环或高频调用中避免自动拆装箱，防止创建大量临时对象导致 GC 压力。
+
+#### 4. 异常体系 & finally 行为 ⭐⭐⭐⭐
+*   **必考指数**：高
+*   **核心考点**：
+    *   **分类**：Checked vs Unchecked 的区别及使用场景。
+    *   **界限**：`Error` (系统级) 与 `Exception` (程序级) 的界限。
+    *   **陷阱**：`finally` 中 `return` 的危害及 `System.exit` 的影响。
+    *   **新特性**：Try-with-resources 的原理及优势。
+
+#### 5. OOP 三大特征 & 接口/抽象类区别 ⭐⭐⭐
+*   **必考指数**：中
+*   **核心考点**：
+    *   **三大特征**：封装、继承、多态的实际应用场景。
+    *   **设计区别**：
+        *   接口 (Interface)：侧重行为规范 ("Can-do")，支持多实现。
+        *   抽象类 (Abstract Class)：侧重代码复用 ("Is-a")，单继承。
+    *   **架构思维**：结合设计原则（开闭原则、里氏替换原则、依赖倒置原则）进行阐述，体现对系统设计的理解。
