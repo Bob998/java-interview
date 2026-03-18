@@ -75,31 +75,122 @@ class WechatPayFactory implements PayFactory {
 项目用法：支付渠道、消息队列类型、存储类型（oss/minio/cos）
 
 ### 2.3 策略模式（消除if-else神器）
+最常见的反例（if-else 地狱）：
 ```java
-interface DiscountStrategy {
-    BigDecimal calculate(BigDecimal originalPrice, OrderContext ctx);
+public BigDecimal calculateDiscount(Order order) {
+    String type = order.getPromotionType();
+    BigDecimal original = order.getOriginalPrice();
+
+    if ("FULL_MINUS".equals(type)) {
+        // 满减
+        if (original.compareTo(new BigDecimal("100")) >= 0) {
+            return original.subtract(new BigDecimal("20"));
+        }
+    } else if ("DISCOUNT".equals(type)) {
+        // 打折
+        return original.multiply(new BigDecimal("0.8"));
+    } else if ("NEW_USER".equals(type)) {
+        // 新人减 30
+        return original.subtract(new BigDecimal("30")).max(BigDecimal.ZERO);
+    } else if ("POINT".equals(type)) {
+        // 积分抵扣
+        ...
+    } else {
+        return original;
+    }
+}
+```
+问题：
+- 新增一种优惠规则 → 必须改这个方法
+- 规则越来越多 → 方法几百行
+- 想单元测试某一种规则 → 几乎不可能（分支太多）
+- 想让运营/配置中心动态控制规则 → 做不到
+- 多人协作 → 冲突严重
+
+使用策略模式
+```java
+// 策略接口（最核心）
+public interface DiscountStrategy {
+    
+    // 可以只传价格，也可以传整个上下文（推荐后者，扩展性更强）
+    BigDecimal calculate(BigDecimal originalPrice, OrderContext context);
+    
+    // 有的团队还会加这个方法，用于标识策略类型（方便 Map 注册）
+    default String getType() {
+        return this.getClass().getSimpleName()
+                   .replace("Strategy", "")
+                   .replace("Discount", "");
+    }
+}
+```
+具体策略实现类（每一个规则一个类，独立维护）
+```java
+@Component
+public class FullMinusDiscountStrategy implements DiscountStrategy {
+    @Override
+    public BigDecimal calculate(BigDecimal original, OrderContext ctx) {
+        if (original.compareTo(new BigDecimal("100")) < 0) {
+            return original;
+        }
+        return original.subtract(new BigDecimal("20"));
+    }
 }
 
-class FullMinusStrategy implements DiscountStrategy { ... }
-class NoDiscountStrategy implements DiscountStrategy { ... }
-
-@Service
-class OrderPriceService {
-    private final Map<String, DiscountStrategy> strategies;
-    
-    public OrderPriceService(List<DiscountStrategy> list) {
-        this.strategies = list.stream()
-            .collect(Collectors.toMap(s -> s.getClass().getSimpleName(), s -> s));
+@Component
+public class EightFoldDiscountStrategy implements DiscountStrategy {
+    @Override
+    public BigDecimal calculate(BigDecimal original, OrderContext ctx) {
+        return original.multiply(new BigDecimal("0.8"));
     }
-    
-    public BigDecimal computePrice(Order order) {
-        String key = order.getPromotionType();  // 或从配置读取
-        DiscountStrategy strategy = strategies.getOrDefault(key, new NoDiscountStrategy());
-        return strategy.calculate(order.getOriginalPrice(), order);
+}
+
+@Component
+public class NoDiscountStrategy implements DiscountStrategy {
+    @Override
+    public BigDecimal calculate(BigDecimal original, OrderContext ctx) {
+        return original;
+    }
+}
+```
+Spring 中最推荐的组装方式（Spring 4.3+ 非常优雅）
+```java
+@Service
+public class OrderPriceService {
+
+    // 使用 Map 按类型自动注册（最常用写法）
+    private final Map<String, DiscountStrategy> strategyMap;
+
+    // Spring 会自动把所有 DiscountStrategy 的实现注入到这个 List
+    public OrderPriceService(List<DiscountStrategy> strategies) {
+        this.strategyMap = strategies.stream()
+                .collect(Collectors.toMap(
+                        DiscountStrategy::getType,   // key
+                        s -> s,                      // value
+                        (old, neu) -> old            // 冲突时保留旧的（或抛异常）
+                ));
+    }
+
+    public BigDecimal computeFinalPrice(Order order) {
+        String type = order.getPromotionType();
+        
+        // 找不到就用默认策略（非常安全）
+        DiscountStrategy strategy = strategyMap.getOrDefault(
+                type, 
+                strategyMap.get("NO_DISCOUNT")  // 或者 new NoDiscountStrategy()
+        );
+
+        return strategy.calculate(order.getOriginalPrice(), OrderContext.from(order));
     }
 }
 ```
 项目价值：新增规则只需加类 + 配置，核心逻辑0改动
+
+策略模式真正的业务价值
+- 符合开闭原则：新增/修改规则只加/改一个类，不动核心流程代码
+- 职责单一：每个策略类只负责一种规则，容易阅读、测试
+- 可配置化：可以把策略 key 放到数据库、配置中心、规则引擎，做到运营可动态调整
+- 可测试：单个策略类可以独立单元测试，几乎没有外部依赖
+- 可复用：同一个策略可被多个业务复用（支付、营销、风控、排序等）
 
 ### 2.4 责任链（有序、可插拔校验/处理）
 ```java
@@ -166,14 +257,6 @@ public class TraceIdLogDecorator implements LogService {
     }
 }
 ```
-常见位置：响应包装、日志脱敏、输入输出流
-
-# 设计模式 - 项目故事模板 & 面试快速背诵锦囊  
-（3–5年 Java 后端面试 / 项目实战向）
-
-最后更新：2026年  
-适用人群：准备中高级 / 资深 Java 后端面试的同学  
-核心目标：用 STAR 法则讲清楚“项目中真的用过”，并快速应对常见追问
 
 ## 3. 项目故事模板（STAR 法则 - 面试直接套用）
 
