@@ -1,1 +1,191 @@
+# Spring 高频面试题 & 高分答案（2025-2026 大厂常考版）
 
+适用于 Java 后台工程师 / 中高级岗位面试  
+重点覆盖：Spring Core、AOP、事务、MVC、Boot  
+建议优先背诵 **前 7 题**（占 Spring 面试 70%+）
+
+## 1. Spring Core & IoC / DI
+
+### 1.1 谈谈你对 Spring IoC 和 DI 的理解？它们有什么区别？
+
+**答案要点**：
+
+- **IoC（控制反转）**：核心思想，把**对象创建、依赖组装、生命周期管理**的控制权从代码交给 Spring 容器，不再手动 `new`。
+- **DI（依赖注入）**：IoC 的具体实现方式，通过构造器、Setter、字段等方式把依赖注入到 Bean 中。
+- 区别：IoC 是设计思想，DI 是实现手段。
+- 优势：**解耦、可测试、便于复用、单例统一管理**。
+- Spring 官方推荐：**构造器注入**（final 修饰 + 依赖完整性 + 避免 NPE）。
+
+**项目说法**：项目中统一使用构造器注入 + @RequiredArgsConstructor（Lombok），保证 Bean 初始化时依赖完整。
+
+### 1.2 Spring Bean 的完整生命周期（画图版）
+
+**答案要点**（5 大阶段，常考手绘）：
+
+1. **实例化**（Instantiation）：反射调用构造方法创建对象
+2. **属性填充**（Populate properties）：依赖注入（@Autowired、@Value 等）
+3. **初始化前/中/后**（Initialization）：
+   - Aware 接口回调（BeanNameAware → ApplicationContextAware → EnvironmentAware 等）
+   - BeanPostProcessor.postProcessBeforeInitialization
+   - @PostConstruct
+   - InitializingBean.afterPropertiesSet()
+   - init-method
+   - BeanPostProcessor.postProcessAfterInitialization（AOP 代理在此生成）
+4. **就绪使用**：放入一级缓存，可被其他 Bean 引用
+5. **销毁**（Destruction）：
+   - @PreDestroy
+   - DisposableBean.destroy()
+   - destroy-method
+
+**加分点**：AOP 代理发生在 postProcessAfterInitialization 中，生成代理对象替换原始 Bean。
+
+### 1.3 Spring 如何解决循环依赖？为什么用三级缓存？
+
+**答案要点**（顶级高频，必背！）：
+
+- 只解决**单例 scope 的 setter 注入循环依赖**（prototype、构造器注入不支持）
+- **三级缓存**机制（核心类：`DefaultSingletonBeanRegistry`）：
+
+  | 缓存级别 | 名称                        | 存储内容                     | 作用                              |
+  |----------|-----------------------------|------------------------------|-----------------------------------|
+  | 一级     | singletonObjects            | 完整 Bean（已初始化）        | 最终成品 Bean                     |
+  | 二级     | earlySingletonObjects       | 早期暴露对象（半成品）       | 防止重复创建                      |
+  | 三级     | singletonFactories          | ObjectFactory（lambda 工厂） | 支持 AOP 动态生成代理对象         |
+
+**创建流程（A → B → A）**：
+
+1. 创建 A → 实例化 → 放三级缓存（ObjectFactory）
+2. A 属性填充时发现依赖 B → 创建 B
+3. 创建 B → 实例化 → 放三级缓存 → 属性填充时发现依赖 A
+4. B 从三级缓存 get A 的早期引用（getObject() → 创建原始对象或代理）
+5. B 完成 → 放入一级缓存 → A 继续属性填充 → A 完成
+
+**为什么三级而不是两级？**
+
+- 两级只能拿到原始对象，无法支持 AOP（最终 Bean 可能是代理对象）
+- 三级通过工厂延迟决定返回原始对象还是代理对象，保证一致性
+
+**规避方式**：@Lazy、调整注入方式、拆分 Bean、重构设计。
+
+## 2. AOP & 事务
+
+### 2.1 Spring AOP 底层原理？JDK 动态代理 vs CGLIB 区别？
+
+**答案要点**：
+
+- AOP：**面向切面编程**，将横切关注点（日志、事务、权限、监控）从业务中抽离，通过**动态代理**织入。
+- 核心概念：Aspect、Pointcut、Advice（Before/After/AfterReturning/AfterThrowing/Around）、JoinPoint、ProceedingJoinPoint。
+
+**两种动态代理**：
+
+| 特性             | JDK 动态代理                  | CGLIB                        |
+|------------------|-------------------------------|------------------------------|
+| 实现方式         | 实现接口（Proxy.newProxyInstance） | 继承目标类（Enhancer）       |
+| 是否需要接口     | 必须有接口                    | 无需接口                     |
+| 性能             | 反射调用，创建快，调用稍慢    | 字节码生成，调用更快         |
+| Spring 默认      | 有接口用 JDK，无接口用 CGLIB  | Spring Boot 2.0+ 默认 CGLIB  |
+
+**常见 AOP 实现**：@Transactional、@Async、@Cacheable、自定义切面。
+
+### 2.2 @Transactional 传播行为、隔离级别、常见失效场景
+
+**传播行为**（7 种，常用前 3 种）：
+
+| 传播行为          | 含义                                      | 使用场景                     |
+|-------------------|-------------------------------------------|------------------------------|
+| REQUIRED          | 有事务加入，无则新建（默认）              | 绝大多数业务                 |
+| REQUIRES_NEW      | 总是新建独立事务，挂起当前                | 独立日志、独立统计           |
+| NESTED            | 嵌套事务（内层回滚不影响外层）            | 部分回滚需求                 |
+| SUPPORTS          | 有事务加入，无则非事务                    | 查询类                       |
+| NOT_SUPPORTED     | 非事务执行，挂起当前                      | —                            |
+| MANDATORY         | 必须有事务，否则抛异常                    | 强事务依赖                   |
+| NEVER             | 禁止事务，有则抛异常                      | —                            |
+
+**隔离级别**（对应数据库）：
+
+DEFAULT → READ_UNCOMMITTED → READ_COMMITTED → REPEATABLE_READ → SERIALIZABLE
+
+**失效场景**（高频考点）：
+
+1. 方法非 public
+2. **同一类内部方法调用**（AOP 代理失效）
+3. 异常被 catch 未抛出
+4. 抛出非 RuntimeException（默认只回滚运行时异常）
+5. 多数据源未指定正确 TransactionManager
+
+**解决办法**：`@Transactional(rollbackFor = Exception.class)` + 自调用用 `AopContext.currentProxy()` 或事务模板。
+
+## 3. Spring MVC
+
+### 3.1 Spring MVC 核心流程（必画图）
+
+**流程**：
+
+1. 请求 → **DispatcherServlet**（前端控制器）
+2. DispatcherServlet 查询 **HandlerMapping** 找到 Handler（Controller 方法）
+3. 通过 **HandlerAdapter** 执行 Handler → 返回 ModelAndView / ResponseBody
+4. **ViewResolver** 解析视图（前后端分离直接返回 JSON）
+5. 渲染响应
+
+**核心组件**：
+
+- DispatcherServlet
+- HandlerMapping（RequestMappingHandlerMapping）
+- HandlerAdapter（RequestMappingHandlerAdapter）
+- ViewResolver（InternalResourceViewResolver / ContentNegotiatingViewResolver）
+- HandlerExceptionResolver
+
+**加分**：用 `@ControllerAdvice` + `@ExceptionHandler` 全局异常处理。
+
+## 4. Spring Boot 核心
+
+### 4.1 Spring Boot 自动装配原理（2025 最热门）
+
+**答案要点**：
+
+1. `@SpringBootApplication` = `@EnableAutoConfiguration` + `@ComponentScan` + `@Configuration`
+2. `@EnableAutoConfiguration` → `AutoConfigurationImportSelector`
+3. 读取 `META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports`（Boot 3.x）或 `spring.factories`
+4. 每个 AutoConfiguration 类使用条件注解：
+   - `@ConditionalOnClass`
+   - `@ConditionalOnMissingBean`
+   - `@ConditionalOnProperty`
+   - `@ConditionalOnWebApplication` 等
+5. 满足条件 → 注入相关 Bean
+
+**流程**：`SpringApplication.run()` → `refreshContext()` → `ConfigurationClassPostProcessor` → 条件过滤 → BeanDefinition 注册。
+
+### 4.2 如何手写一个 Spring Boot Starter？
+
+**步骤**：
+
+1. 创建 `xxx-spring-boot-autoconfigure` 模块
+   - 写配置类 `@Configuration` + `@EnableConfigurationProperties`
+   - 用 `@ConditionalOnMissingBean`、`@ConditionalOnClass` 等
+2. 创建 `xxx-spring-boot-starter` 模块（只做依赖聚合）
+3. 在 autoconfigure 模块 resources/META-INF/spring/org.springframework.boot.autoconfigure.AutoConfiguration.imports 写入配置类全限定名
+4. 引入 starter 即可自动装配
+
+**示例**：自定义 Redis Starter 封装分布式锁。
+
+## 5. 其他高频补充题
+
+- **@Autowired vs @Resource**  
+  @Autowired（Spring）：byType → byName + @Qualifier  
+  @Resource（JSR-250）：byName → byType
+
+- **Bean 作用域**  
+  singleton（默认）、prototype、request、session、application、websocket
+
+- **单例 Bean 线程安全吗？**  
+  Bean 本身无状态（Service/Repository）是安全的；有状态需加锁或改 prototype
+
+- **Spring 常用设计模式**  
+  工厂、单例、代理、模板方法、观察者、策略、适配器
+
+## 背诵 & 应试建议
+
+- 必会画图：Bean 生命周期、三级缓存、MVC 流程、自动装配流程
+- 每题结尾加项目经验（“我在 XX 项目用 @Async 异步发邮件，用 REQUIRES_NEW 记录操作日志”）
+- 源码关注类：`AbstractAutowireCapableBeanFactory`、`DefaultSingletonBeanRegistry`、`AutoConfigurationImportSelector`
+- 进阶方向：Spring Cloud（Nacos、Gateway）、Boot 3.x AOT、GraalVM 原生镜像
