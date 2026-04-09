@@ -1,1 +1,468 @@
+# Java 并发编程面试八股（高频一问一答版）
 
+> 适用于：后端面试 / Java岗 / 3-5年经验
+> 结构：基础 → 核心机制 → JUC → 线程池 → 实战问题
+
+---
+
+# 一、线程基础
+
+## Q1：进程和线程的区别？
+
+**答：**
+- 进程是资源分配的基本单位
+- 线程是 CPU 调度的基本单位
+- 同一进程的线程共享堆和方法区，但有独立的程序计数器、虚拟机栈、本地方法栈
+
+👉 一句话：进程是资源容器，线程是执行单元
+
+---
+
+## Q2：Java 创建线程的方式？
+
+**答：**
+1. 继承 Thread
+2. 实现 Runnable
+3. 实现 Callable + Future
+4. 线程池（推荐）
+
+👉 本质：最终都是调用 `Thread.start()`
+
+---
+
+## Q3：Runnable 和 Callable 区别？
+
+**答：**
+- Runnable 无返回值，不能抛异常
+- Callable 有返回值，可以抛异常
+
+👉 一句话：Callable = 带返回值的 Runnable
+
+---
+
+## Q4：线程的生命周期？
+
+**答：6种状态**
+- NEW
+- RUNNABLE
+- BLOCKED
+- WAITING
+- TIMED_WAITING
+- TERMINATED
+
+---
+
+## Q5：sleep 和 wait 区别？
+
+**答：**
+- sleep：Thread方法，不释放锁
+- wait：Object方法，释放锁
+- wait 必须在 synchronized 中使用
+
+---
+
+## Q6：为什么 wait 在 Object 里？
+
+**答：**
+因为 wait/notify 依赖对象锁（monitor），而不是线程本身
+
+---
+
+# 二、线程安全与JMM
+
+## Q7：什么是线程安全？
+
+**答：**
+多个线程访问共享资源时，结果仍然正确
+
+👉 核心问题：
+- 原子性
+- 可见性
+- 有序性
+
+---
+
+## Q8：什么是原子性、可见性、有序性？
+
+**答：**
+- 原子性：操作不可中断
+- 可见性：修改对其他线程立即可见
+- 有序性：程序执行顺序可能被重排序
+
+---
+
+## Q9：什么是 JMM？
+
+**答：**
+Java 内存模型，定义线程如何访问共享变量
+
+👉 核心：
+- 主内存
+- 工作内存
+- happens-before 规则
+
+---
+
+## Q10：什么是 happens-before？
+
+**答：**
+用于判断操作之间是否存在可见性关系
+
+👉 结论：
+如果 A happens-before B，则 A 对 B 可见
+
+---
+
+# 三、synchronized & volatile
+
+## Q11：synchronized 的作用？
+
+**答：**
+- 保证原子性
+- 保证可见性
+- 防止并发访问
+
+---
+
+## Q12：synchronized 锁的是什么？
+
+**答：**
+- 实例方法：当前对象
+- 静态方法：Class对象
+- 代码块：指定对象
+
+---
+
+## Q13：synchronized 底层原理？
+
+**答：**
+- 基于 monitor（对象监视器）
+- 依赖对象头 Mark Word
+- 通过 CAS + 自旋实现锁竞争
+
+👉 锁升级：
+无锁 → 偏向锁 → 轻量级锁 → 重量级锁
+
+---
+
+## Q14：volatile 的作用？
+
+**答：**
+- 保证可见性
+- 禁止指令重排序
+
+❗不保证原子性
+
+---
+
+## Q15：volatile 为什么不能保证原子性？
+
+**答：**
+因为 i++ 是三步操作：
+1. 读取
+2. 修改
+3. 写回
+
+volatile 不能保证这三步不被打断
+
+---
+
+## Q16：单例为什么要用 volatile？
+
+**答：**
+防止指令重排序导致“未初始化对象被引用”
+
+---
+
+## Q17：synchronized 和 Lock 区别？
+
+**答：**
+- synchronized：JVM层，自动释放锁
+- Lock：API层，需手动释放
+
+👉 Lock 支持：
+- 可中断
+- 公平锁
+- tryLock
+
+---
+
+# 四、CAS & AQS
+
+## Q18：什么是 CAS？
+
+**答：**
+Compare And Swap
+
+👉 流程：
+比较 → 相等才更新
+
+---
+
+## Q19：CAS 有什么问题？
+
+**答：**
+- ABA问题
+- 自旋开销大
+- 只能保证单变量原子性
+
+---
+
+## Q20：什么是 AQS？
+
+**答：**
+AbstractQueuedSynchronizer
+
+👉 核心：
+- state（状态）
+- CLH队列（线程排队）
+
+👉 一句话：
+AQS = state + CAS + 队列
+
+---
+
+## Q21：哪些类基于 AQS？
+
+**答：**
+- ReentrantLock
+- Semaphore
+- CountDownLatch
+
+---
+
+## Q22：什么是可重入锁？
+
+**答：**
+同一线程可以多次获取同一把锁
+
+---
+
+## Q23：公平锁 vs 非公平锁？
+
+**答：**
+- 公平锁：按顺序获取
+- 非公平锁：允许插队（性能更好）
+
+---
+
+# 五、线程池（高频）
+
+## Q24：为什么要用线程池？
+
+**答：**
+- 降低创建销毁成本
+- 提高响应速度
+- 统一管理线程
+
+---
+
+## Q25：线程池核心参数？
+
+```java
+ThreadPoolExecutor(
+ corePoolSize,
+ maximumPoolSize,
+ keepAliveTime,
+ unit,
+ workQueue,
+ threadFactory,
+ handler
+)
+```
+
+## Q26：线程池执行流程？
+
+**答：**
+- core 未满 → 创建线程
+- 队列未满 → 入队
+- max 未满 → 创建线程
+- 拒绝策略
+
+## Q27：拒绝策略有哪些？
+
+**答：**
+- AbortPolicy（默认）
+- CallerRunsPolicy
+- DiscardPolicy
+- DiscardOldestPolicy
+
+## Q28：为什么不推荐 Executors？
+
+**答：**
+可能导致 OOM：
+- 无界队列
+- 无限制线程数
+
+## Q29：submit 和 execute 区别？
+
+**答：**
+- `execute`：无返回值
+- `submit`：返回 `Future`
+
+---
+
+# 六、JUC 工具类
+
+## Q30：CountDownLatch 和 CyclicBarrier 区别？
+
+**答：**
+- CountDownLatch：等待结束
+- CyclicBarrier：同步起点，可复用
+
+## Q31：Semaphore 是什么？
+
+**答：**
+控制并发线程数量（限流）。
+
+## Q32：Exchanger 是什么？
+
+**答：**
+两个线程交换数据。
+
+---
+
+# 七、ThreadLocal
+
+## Q33：ThreadLocal 是什么？
+
+**答：**
+每个线程独立变量副本。
+
+## Q34：ThreadLocal 原理？
+
+**答：**
+每个线程有一个 `ThreadLocalMap`：
+- key：`ThreadLocal`
+- value：变量
+
+## Q35：ThreadLocal 为什么会内存泄漏？
+
+**答：**
+key 是弱引用，value 可能残留。
+
+**解决：**
+用完调用 `remove()`。
+
+## Q36：线程池中 ThreadLocal 为什么危险？
+
+**答：**
+线程复用 → 数据串用 → 内存泄漏。
+
+---
+
+# 八、并发容器
+
+## Q37：ConcurrentHashMap 原理？
+
+**答：**
+- 数组 + 链表 + 红黑树
+- CAS + `synchronized`
+
+## Q38：为什么 HashMap 线程不安全？
+
+**答：**
+- 数据覆盖
+- resize 死循环（JDK 1.7）
+- 链表成环
+
+## Q39：CopyOnWriteArrayList 适用场景？
+
+**答：**
+读多写少。
+
+## Q40：BlockingQueue 作用？
+
+**答：**
+实现生产者-消费者模型。
+
+---
+
+# 九、Atomic & 高并发优化
+
+## Q41：Atomic 类为什么线程安全？
+
+**答：**
+基于 CAS。
+
+## Q42：LongAdder 为什么比 AtomicLong 快？
+
+**答：**
+分段计数，减少竞争。
+
+---
+
+# 十、CompletableFuture
+
+## Q43：CompletableFuture 有什么用？
+
+**答：**
+异步编排任务。
+
+## Q44：常用方法？
+
+**答：**
+- `supplyAsync`
+- `thenApply`
+- `thenAccept`
+- `allOf`
+- `exceptionally`
+
+---
+
+# 十一、死锁问题
+
+## Q45：死锁条件？
+
+**答：**
+- 互斥
+- 请求保持
+- 不可剥夺
+- 循环等待
+
+## Q46：如何避免死锁？
+
+**答：**
+- 固定锁顺序
+- `tryLock`
+- 超时机制
+
+---
+
+# 面试速记口诀
+
+- 并发三要素：原子性 + 可见性 + 有序性
+- 锁升级：偏向 → 轻量 → 重量
+- AQS：state + 队列 + CAS
+- 线程池：core → queue → max → reject
+- ThreadLocal：线程隔离，但要防泄漏
+
+---
+
+# 面试最该背的 12 个核心结论
+
+1. 线程共享堆和方法区，但各自有程序计数器、虚拟机栈、本地方法栈。
+2. Java 真正创建线程最终依赖 `new Thread().start()`。
+3. 并发核心问题是原子性、可见性、有序性。
+4. `volatile` 保证可见性和一定程度的有序性，不保证原子性。
+5. `synchronized` 基于 monitor，实现互斥和可见性。
+6. `wait()` 会释放锁，`sleep()` 不会释放锁。
+7. `ThreadLocal` 是每线程独立副本，不是用来解决共享变量同步的。
+8. 线程池执行流程：core → queue → max → reject。
+9. 生产中不建议直接用 Executors 默认工厂创建线程池。
+10. CAS 是无锁原子操作基础，但有 ABA 和自旋成本问题。
+11. AQS = state + 等待队列，是很多同步器的基础。
+12. `ConcurrentHashMap`、`BlockingQueue`、`CompletableFuture` 是最常结合实战问的三类组件。
+
+---
+
+# 适合背诵的面试输出模板
+
+你可以把 Java 并发分成 6 个大块去答：
+
+1. **线程基础**：进程线程区别、线程状态、线程创建方式。  
+2. **线程安全基础**：原子性、可见性、有序性。  
+3. **关键字和模型**：`synchronized`、`volatile`、JMM、happens-before。  
+4. **JUC 核心组件**：AQS、Lock、原子类、同步工具类。  
+5. **工程实践**：线程池、并发容器、BlockingQueue、CompletableFuture。  
+6. **风险问题**：ThreadLocal 内存泄漏、CAS 的 ABA、死锁、线程池参数不当导致 OOM。
