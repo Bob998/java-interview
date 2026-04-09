@@ -1,1 +1,215 @@
+# Java 集合高频面试题（JavaGuide整理版）
 
+> 来源整理：JavaGuide 集合专栏（上 + 下 + 使用注意事项）
+> 目标：高频 + 可背诵 + 面试直接输出
+
+# 一、集合框架总览
+
+## Q1：Java集合框架怎么划分？
+**答：**
+Java集合分为两大体系：
+- Collection：存单个元素
+- Map：存键值对
+
+Collection下又分：
+- List
+- Set
+- Queue
+
+
+## Q2：List、Set、Queue、Map区别？
+**答：**
+- List：有序、可重复
+- Set：无序、不可重复
+- Queue：按规则排序（FIFO/优先级）
+- Map：key-value，key唯一，value可重复
+
+
+## Q3：常见集合底层结构？
+**答：**
+- ArrayList：数组
+- LinkedList：双向链表
+- HashSet：HashMap
+- LinkedHashSet：LinkedHashMap
+- TreeSet：红黑树
+- HashMap：数组 + 链表 + 红黑树（JDK1.8）
+- TreeMap：红黑树
+- PriorityQueue：堆（小顶堆）
+
+
+## Q4：如何选择集合？
+**答：**
+- 查找 → Map
+- 去重 → Set
+- 顺序 → List
+- 并发 → ConcurrentHashMap
+
+
+# 二、List相关
+
+## Q5：ArrayList和数组区别？
+**答：**
+- 数组长度固定，ArrayList可扩容
+- 数组可存基本类型，ArrayList只能对象
+- ArrayList更灵活
+
+
+## Q6：ArrayList vs Vector？
+**答：**
+- 都是数组
+- ArrayList：线程不安全（推荐）
+- Vector：线程安全（已过时）
+
+
+## Q7：ArrayList能存null吗？
+**答：**
+可以，但不推荐，容易引发NPE
+
+
+## Q8：LinkedList复杂度？
+**答：**
+- 头尾操作：O(1)
+- 查找：O(n)
+
+
+## Q9：为什么LinkedList不支持随机访问？
+**答：**
+链表非连续存储，必须遍历
+
+
+## Q10：ArrayList vs LinkedList？
+**答：**
+- ArrayList：查快
+- LinkedList：头尾操作快
+- 实际推荐：优先ArrayList
+
+# 三、Set相关
+
+## Q11：Comparable vs Comparator？
+**答：**
+- Comparable：类内部实现
+- Comparator：外部定义
+
+
+## Q12：Set的无序和不可重复？
+**答：**
+- 无序：按hash存储
+- 不可重复：equals决定
+
+
+## Q13：HashSet / LinkedHashSet / TreeSet区别？
+**答：**
+- HashSet：无序
+- LinkedHashSet：有插入顺序
+- TreeSet：排序
+
+
+# 四、Queue相关
+
+## Q14：PriorityQueue特点？
+**答：**
+- 基于堆
+- 默认小顶堆
+- O(log n)
+- 不线程安全
+- 不支持null
+
+
+# 五、Map核心
+
+## Q15：HashMap vs Hashtable？
+**答：**
+- HashMap：非线程安全，允许null
+- Hashtable：线程安全，不允许null（过时）
+
+## Q16：HashSet和HashMap关系？
+**答：**
+HashSet底层就是HashMap
+
+## Q17：HashMap vs TreeMap？
+**答：**
+- HashMap：无序
+- TreeMap：有序（红黑树）
+
+## Q18：HashMap底层结构？
+**答：**
+JDK1.8：
+数组 + 链表 + 红黑树
+
+## Q19：为什么需要hash扰动？
+**答：**
+减少hash冲突，提高均匀性
+
+## Q20：为什么长度是2的幂？
+**答：**
+- 位运算优化
+- 扩容更均匀
+
+## Q21：JDK1.7 HashMap死循环原因？
+**答：**
+扩容头插法导致链表成环
+
+## Q22：HashMap遍历方式？
+**答：**
+推荐：
+```java
+for (Map.Entry<K,V> entry : map.entrySet())
+```
+
+# 六、ConcurrentHashMap
+## Q23：CHM vs Hashtable？
+**答：**
+CHM：高并发，细粒度锁
+Hashtable：全表锁
+
+## Q24：CHM线程安全原理？
+**答：**
+JDK1.7：Segment分段锁
+JDK1.8：CAS + synchronized
+
+## Q25：为什么CHM不支持null？
+**答：**
+避免并发下歧义（key不存在 vs value为null）
+
+## Q26：CHM复合操作安全吗？
+**答：**
+不安全，需要：
+putIfAbsent
+computeIfAbsent
+
+# 七、使用注意事项（高频坑🔥）
+## Q27：为什么用isEmpty()而不是size()==0？
+**答：**
+可读性更好
+某些集合size不是O(1)
+
+## Q28：为什么foreach不能删除元素？
+**答：**
+会触发：
+ConcurrentModificationException
+正确方式：
+Iterator.remove()
+
+## Q29：集合转数组正确写法？
+**答：**
+list.toArray(new String[0])
+
+## Q30：Arrays.asList()坑？
+**答：**
+返回固定长度List
+不能add/remove
+基本类型数组会变成一个元素
+
+## Q31：如何转可修改List？
+**答：**
+new ArrayList<>(Arrays.asList(...))
+
+# 八、终极背诵总结（必背🔥）
+
+Java集合分为Collection和Map两大体系。
+List用于有序可重复数据，Set用于去重，Queue用于排队模型，Map用于键值映射。
+ArrayList底层是动态数组，LinkedList是链表。
+HashSet基于HashMap实现。
+HashMap是核心结构，JDK1.8采用数组+链表+红黑树。
+并发场景使用ConcurrentHashMap。
+开发中注意isEmpty判断、Iterator删除、toArray写法以及Arrays.asList的坑。
